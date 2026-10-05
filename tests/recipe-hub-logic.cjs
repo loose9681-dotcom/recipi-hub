@@ -4,7 +4,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8")
+  .replace(/const API_URL = "[^"]*";/, 'const API_URL = "ここにGASのウェブアプリURLを貼り付け";');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const cached = [{ title: "保存カレー", rating: 3, tags: ["夕食"], memo: "保存メモ" }];
 const fresh = [{ title: "新スープ", rating: 4, tags: ["朝食"] }];

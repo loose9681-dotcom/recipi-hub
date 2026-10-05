@@ -4,7 +4,8 @@ const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8")
+  .replace(/const API_URL = "[^"]*";/, 'const API_URL = "ここにGASのウェブアプリURLを貼り付け";');
 const api = "https://api.recipe.test/recipes";
 const old = [{ title: "保存済みカレー", tags: ["夕食"], rating: 3, memo: "前回のメモ" }];
 const fresh = [{ title: "新しいスープ", tags: ["朝食"], rating: 4, keepUrl: "https://keep.google.com/" }];

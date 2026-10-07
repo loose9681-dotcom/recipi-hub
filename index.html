@@ -7,44 +7,124 @@
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #fff8f5; margin: 0; padding: 20px; color: #221a14; }
   .header { max-width: 900px; margin: 0 auto 20px; display: flex; gap: 10px; }
-  input { flex: 1; padding: 12px 16px; border: 1px solid #d4c5ba; border-radius: 8px; font-size: 16px; outline: none; }
+  input { flex: 1; min-width: 0; padding: 12px 16px; border: 1px solid #d4c5ba; border-radius: 8px; font-size: 16px; outline: none; }
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; max-width: 900px; margin: 0 auto; }
-  .card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); border: 1px solid #f0e3db; }
+  .card { min-width: 0; overflow-wrap: anywhere; background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); border: 1px solid #f0e3db; }
   .title { font-size: 18px; font-weight: bold; margin: 0 0 6px; }
   .rating { color: #d97706; font-size: 14px; margin-bottom: 8px; }
   .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
   .tag { background: #fbebe1; color: #6c3a07; font-size: 11px; padding: 3px 8px; border-radius: 12px; }
-  .links { display: flex; gap: 8px; margin-top: 12px; }
+  .links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .btn { text-decoration: none; font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 6px; background: #88511e; color: #fff; }
   .btn.secondary { background: #e29c62; }
+  .memo { font-size: 13px; color: #555; }
+  .status { max-width: 900px; margin: 0 auto 16px; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .status[data-state="warning"], .status[data-state="error"] { color: #843b0b; }
+  @media (max-width: 360px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
   <div class="header">
     <input type="text" id="search" placeholder="料理名やタグで絞り込み..." oninput="filterRecipes()">
   </div>
+  <p class="status" id="status" role="status" aria-live="polite" aria-atomic="true"></p>
   <div class="grid" id="container">読み込み中...</div>
 
 <script>
-  const API_URL = "ここにGASのウェブアプリURLを貼り付け";
-  let allData = JSON.parse(localStorage.getItem("recipe_cache") || "[]");
+  const API_URL = "https://script.google.com/macros/s/AKfycbyJLmVrfXzefbpvaZRvxDChVYeJn7EaN_pu8hzkHFtjV58zIJQcxdKhuuXKRSYzwgnC/exec";
+  const CACHE_KEY = "recipe_cache";
+  let cacheWarning = "";
+
+  // 外部データは表示前に型をそろえ、評価値を0〜5に制限する。
+  function normalizeRecipes(data) {
+    if (!Array.isArray(data) || data.some(r => !r || typeof r !== "object" || Array.isArray(r))) {
+      throw new Error("レシピデータの形式が不正です");
+    }
+    const asText = value => typeof value === "string" ? value : "";
+    return data.map(r => {
+      const rating = typeof r.rating === "number" || typeof r.rating === "string"
+        ? Number(r.rating) : 0;
+      return {
+        title: asText(r.title),
+        rating: Number.isFinite(rating) ? Math.max(0, Math.min(5, Math.trunc(rating))) : 0,
+        tags: Array.isArray(r.tags) ? r.tags.filter(t => typeof t === "string") : [],
+        memo: asText(r.memo),
+        keepUrl: asText(r.keepUrl),
+        videoUrl: asText(r.videoUrl),
+        photoUrl: asText(r.photoUrl)
+      };
+    });
+  }
+
+  function readCache() {
+    try {
+      return normalizeRecipes(JSON.parse(localStorage.getItem(CACHE_KEY) || "[]"));
+    } catch (error) {
+      console.error("キャッシュを読み込めませんでした", error);
+      cacheWarning = "保存済みデータを読み込めませんでした。";
+      return [];
+    }
+  }
+
+  let allData = readCache();
+
+  function setStatus(message, state) {
+    const el = document.getElementById("status");
+    el.textContent = message;
+    el.dataset.state = state;
+  }
+
+  function safeHttpUrl(value) {
+    if (typeof value !== "string" || !value.trim()) return null;
+    try {
+      const url = new URL(value.trim());
+      return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function textElement(tag, className, text) {
+    const el = document.createElement(tag);
+    el.className = className;
+    el.textContent = text;
+    return el;
+  }
+
+  function appendLink(parent, value, label, secondary) {
+    const url = safeHttpUrl(value);
+    if (!url) return;
+    const link = textElement("a", secondary ? "btn secondary" : "btn", label);
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    parent.append(link);
+  }
 
   function render(list) {
     const el = document.getElementById("container");
-    if (!list.length) { el.innerHTML = "<p>該当するレシピがありません</p>"; return; }
-    el.innerHTML = list.map(r => `
-      <div class="card">
-        <div class="title">${r.title}</div>
-        <div class="rating">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</div>
-        <div class="tags">${r.tags.map(t => `<span class="tag">${t}</span>`).join("")}</div>
-        <div style="font-size: 13px; color: #555;">${r.memo || ""}</div>
-        <div class="links">
-          ${r.keepUrl ? `<a href="${r.keepUrl}" target="_blank" class="btn">Keep</a>` : ""}
-          ${r.videoUrl ? `<a href="${r.videoUrl}" target="_blank" class="btn secondary">動画</a>` : ""}
-          ${r.photoUrl ? `<a href="${r.photoUrl}" target="_blank" class="btn secondary">写真</a>` : ""}
-        </div>
-      </div>
-    `).join("");
+    const fragment = document.createDocumentFragment();
+    if (!list.length) {
+      fragment.append(textElement("p", "", "該当するレシピがありません"));
+    }
+    list.forEach(r => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.append(textElement("div", "title", r.title));
+      card.append(textElement("div", "rating", "★".repeat(r.rating) + "☆".repeat(5 - r.rating)));
+      const tags = document.createElement("div");
+      tags.className = "tags";
+      r.tags.forEach(t => tags.append(textElement("span", "tag", t)));
+      card.append(tags, textElement("div", "memo", r.memo));
+      const links = document.createElement("div");
+      links.className = "links";
+      appendLink(links, r.keepUrl, "Keep", false);
+      appendLink(links, r.videoUrl, "動画", true);
+      appendLink(links, r.photoUrl, "写真", true);
+      card.append(links);
+      fragment.append(card);
+    });
+    el.replaceChildren(fragment);
   }
 
   function filterRecipes() {
@@ -53,13 +133,45 @@
     render(filtered);
   }
 
-  // 初回キャッシュ表示＆最新データ取得
-  render(allData);
-  fetch(API_URL).then(res => res.json()).then(data => {
-    allData = data;
-    localStorage.setItem("recipe_cache", JSON.stringify(data));
+  async function loadRecipes() {
+    // 通信前にキャッシュを表示し、取得失敗時にも現在のデータを維持する。
     filterRecipes();
-  }).catch(console.error);
+    const apiUrl = safeHttpUrl(API_URL);
+    const cachedMessage = allData.length
+      ? "保存済みのレシピを表示しています。"
+      : "表示できる保存済みのレシピはありません。";
+    if (!apiUrl) {
+      setStatus("APIが未設定、またはURLが不正です。GASのウェブアプリURLを設定してください。" +
+        cachedMessage + cacheWarning, "warning");
+      return;
+    }
+    setStatus("最新のレシピを取得中です。" + cachedMessage + cacheWarning, "loading");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiUrl, { signal: controller.signal });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = normalizeRecipes(await response.json());
+      // HTTP・JSON・データ形式の検証後にのみ表示とキャッシュを更新する。
+      allData = data;
+      filterRecipes();
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        setStatus("最新のレシピを取得しました。", "success");
+      } catch (error) {
+        console.error("キャッシュを保存できませんでした", error);
+        setStatus("最新のレシピを表示していますが、この端末に保存できませんでした。", "warning");
+      }
+    } catch (error) {
+      console.error("レシピを取得できませんでした", error);
+      setStatus("最新のレシピを取得できませんでした。通信環境やAPI設定を確認して再読み込みしてください。" +
+        cachedMessage + cacheWarning, "error");
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  loadRecipes();
 </script>
 </body>
 </html>
